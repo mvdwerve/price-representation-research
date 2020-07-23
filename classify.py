@@ -1,3 +1,5 @@
+from sklearn.metrics import precision_recall_curve
+import cmf
 import torch
 from torch import nn
 import pandas as pd
@@ -6,9 +8,8 @@ import sys
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.metrics import confusion_matrix
 import argparse
-from sklearn.preprocessing import RobustScaler, StandardScaler
+from sklearn.preprocessing import RobustScaler
 import numpy as np
-from tqdm import trange
 from imblearn.over_sampling import SMOTE
 import wandb
 import json
@@ -18,17 +19,28 @@ LOG_FORMAT = "[%(asctime)s] [%(levelname)-8s] %(filename)24s:%(lineno)-4d | %(me
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 
 os.environ["WANDB_API_KEY"] = "55bfb66f97aa0be0e1b0f571ffa2c2817ce1c7ac"
-#os.environ["WANDB_MODE"] = "dryrun"
+# os.environ["WANDB_MODE"] = "dryrun"
 
 # some CLI arguments
-parser = argparse.ArgumentParser(description='Learn on the downstream task.')
-parser.add_argument('folder', help='Folder where df-train.feather can be found.')
-parser.add_argument("--target", default="movement", choices=["movement", "movement_up", "anomaly", "future_anomaly", "positive"])
-parser.add_argument('--epochs', default=20, type=int)
-parser.add_argument('--batch_size', default=1024, type=int)
-parser.add_argument('--seed', default=42, type=int)
-parser.add_argument('--retrain', default=False, action='store_true', help='force training (even if already exists')
-parser.add_argument('--nobalance', default=False, action='store_true', help='disable SMOTE rebalancing')
+parser = argparse.ArgumentParser(description="Learn on the downstream task.")
+parser.add_argument("folder", help="Folder where df-train.feather can be found.")
+parser.add_argument(
+    "--target",
+    default="movement",
+    choices=["movement", "movement_up", "anomaly", "future_anomaly", "positive"],
+)
+parser.add_argument("--epochs", default=20, type=int)
+parser.add_argument("--batch_size", default=1024, type=int)
+parser.add_argument("--seed", default=42, type=int)
+parser.add_argument(
+    "--retrain",
+    default=False,
+    action="store_true",
+    help="force training (even if already exists",
+)
+parser.add_argument(
+    "--nobalance", default=False, action="store_true", help="disable SMOTE rebalancing"
+)
 args = parser.parse_args()
 
 # set random seeds
@@ -37,9 +49,11 @@ torch.cuda.manual_seed(args.seed)
 np.random.seed(args.seed)
 
 # create the downstream model folder
-os.makedirs(os.path.join(args.folder, 'downstream', args.target), exist_ok=True)
+os.makedirs(os.path.join(args.folder, "downstream", args.target), exist_ok=True)
 
 # the simplest of logistic regressions
+
+
 class LogisticRegressionModel(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(LogisticRegressionModel, self).__init__()
@@ -49,17 +63,18 @@ class LogisticRegressionModel(nn.Module):
         out = self.linear(x)
         return out
 
+
 def df_to_Xy(df, target="movement"):
     # drop all na targets (selecting only notna targets)
-    df = df[df['target_%s' % target].notna()]
+    df = df[df["target_%s" % target].notna()]
 
     # TODO(do not hardcode the number of dimensions)
     X = df.values[:, :16].astype(np.float32)
-    y = df['target_%s' % target].values.astype(np.int64)
+    y = df["target_%s" % target].values.astype(np.int64)
 
     # if there is a representation loss, use it
-    if 'loss_0' in df.columns:
-        X = np.hstack([X, df['loss_0'].values.astype(np.float32).reshape(-1, 1)])
+    if "loss_0" in df.columns:
+        X = np.hstack([X, df["loss_0"].values.astype(np.float32).reshape(-1, 1)])
 
     # return only the non-na targets
     return X, y, df
@@ -68,39 +83,45 @@ def df_to_Xy(df, target="movement"):
 def augment(df):
     def fname_to_tstamp(fname):
         try:
-            return int(fname.split('-')[-5])
-        except:
+            return int(fname.split("-")[-5])
+        except BaseException:
             print(fname)
+
     def fname_to_ticker(fname):
         try:
-            return "-".join(fname.split('-')[1:-5])
-        except:
-            print('could not convert', fname)
+            return "-".join(fname.split("-")[1:-5])
+        except BaseException:
+            print("could not convert", fname)
 
     def nor_to_na(v):
         return np.nan if v == 0.0 else v
 
-    df['timestamp'] = df['filename'].map(fname_to_tstamp) / 1000
-    df['ticker'] = df['filename'].map(fname_to_ticker)
-    df['target_positive'] = (df['profitability'].map(nor_to_na) > 1.0).astype(float)
+    df["timestamp"] = df["filename"].map(fname_to_tstamp) / 1000
+    df["ticker"] = df["filename"].map(fname_to_ticker)
+    df["target_positive"] = (df["profitability"].map(nor_to_na) > 1.0).astype(float)
 
     return df
+
 
 def train_test_split(df, split=0.75):
     # calculate the quantile of the timestamp
     q = df["timestamp"].quantile(split)
 
     # split it into train and test
-    return df_to_Xy(df[df["timestamp"] <= q], target=args.target), df_to_Xy(df[df["timestamp"] > q], target=args.target)
+    return (
+        df_to_Xy(df[df["timestamp"] <= q], target=args.target),
+        df_to_Xy(df[df["timestamp"] > q], target=args.target),
+    )
 
-import cmf
 
 # load the training data
-df = pd.read_feather(os.path.join(args.folder, 'df-train.feather'))
-dft = pd.read_feather(os.path.join(args.folder, 'df-test.feather'))
+df = pd.read_feather(os.path.join(args.folder, "df-train.feather"))
+dft = pd.read_feather(os.path.join(args.folder, "df-test.feather"))
 
 # split into train and validation
-(X_train, y_train, df_train), (X_valid, y_valid, df_valid) = train_test_split(augment(df), split=0.75)
+(X_train, y_train, df_train), (X_valid, y_valid, df_valid) = train_test_split(
+    augment(df), split=0.75
+)
 (X_test, y_test, df_test) = df_to_Xy(augment(dft), target=args.target)
 
 # scale it now to a good range
@@ -121,25 +142,40 @@ if not args.nobalance:
     X_train, y_train = sm.fit_resample(X_train, y_train)
 
 # pick the cuda
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # create the dataloaders for tensorflow
-train_loader = DataLoader(TensorDataset(torch.FloatTensor(X_train), torch.LongTensor(y_train)), batch_size=args.batch_size, shuffle=True)
-valid_loader = DataLoader(TensorDataset(torch.FloatTensor(X_valid), torch.LongTensor(y_valid)), batch_size=args.batch_size, shuffle=False)
+train_loader = DataLoader(
+    TensorDataset(torch.FloatTensor(X_train), torch.LongTensor(y_train)),
+    batch_size=args.batch_size,
+    shuffle=True,
+)
+valid_loader = DataLoader(
+    TensorDataset(torch.FloatTensor(X_valid), torch.LongTensor(y_valid)),
+    batch_size=args.batch_size,
+    shuffle=False,
+)
 
 # create the logistic regression
 model = LogisticRegressionModel(X_train.shape[1], 2).to(device)
 
-# we use binary cross entropy 
+# we use binary cross entropy
 criterion = nn.CrossEntropyLoss().to(device)
 
 # if the model already exists we leap out
-if os.path.exists(os.path.join(args.folder, 'downstream', args.target, 'model.pt')) and not args.retrain:
-    model.load_state_dict(torch.load(os.path.join(args.folder, 'downstream', args.target, 'model.pt')))
+if (
+    os.path.exists(os.path.join(args.folder, "downstream", args.target, "model.pt"))
+    and not args.retrain
+):
+    model.load_state_dict(
+        torch.load(os.path.join(args.folder, "downstream", args.target, "model.pt"))
+    )
     logging.info("model reloaded")
 
 # if we are either retraining or the model does not exist yet
-if args.retrain or not os.path.exists(os.path.join(args.folder, 'downstream', args.target, 'model.pt')):
+if args.retrain or not os.path.exists(
+    os.path.join(args.folder, "downstream", args.target, "model.pt")
+):
     logging.info("preparing for training")
     # get some meta keys
     # open the folder settings to repeat
@@ -170,7 +206,7 @@ if args.retrain or not os.path.exists(os.path.join(args.folder, 'downstream', ar
 
     # convert to the run settings
     settings = {key: str(val) for key, val in vars(args).items()}
-    settings.update({'upstream-%s' % key: str(val) for key, val in opt.items()})
+    settings.update({"upstream-%s" % key: str(val) for key, val in opt.items()})
 
     # initialize wandb and set the config
     wandb.init(project="representation-classifiers")
@@ -194,7 +230,7 @@ if args.retrain or not os.path.exists(os.path.join(args.folder, 'downstream', ar
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     for epoch in range(args.epochs):
-        # calculate the confusion matrix for the epoch 
+        # calculate the confusion matrix for the epoch
         epoch_cm = np.zeros((2, 2))
         epoch_loss = 0
 
@@ -226,7 +262,9 @@ if args.retrain or not os.path.exists(os.path.join(args.folder, 'downstream', ar
             epoch_cm += confusion_matrix(y.cpu().numpy(), predicted.cpu().numpy())
 
         # and the training confusion matrix for the epoch
-        logging.info('EPOCH %d TRAINING CM (balanced)\n%s', epoch, epoch_cm / epoch_cm.sum())
+        logging.info(
+            "EPOCH %d TRAINING CM (balanced)\n%s", epoch, epoch_cm / epoch_cm.sum()
+        )
 
         # confusion matrix
         cm = np.zeros((2, 2))
@@ -256,44 +294,55 @@ if args.retrain or not os.path.exists(os.path.join(args.folder, 'downstream', ar
         tnv, fpv, fnv, tpv = cm.ravel() / cm.sum()
 
         # message to wandb
-        wandb.log({
-            "Training Loss": epoch_loss / len(train_loader),
-            "Training Accuracy": cmf.accuracy(epoch_cm),
-            "Training Precision": cmf.precision(epoch_cm),
-            "Training Recall": cmf.recall(epoch_cm),
-            "Training TP": tp,
-            "Training TN": tn,
-            "Training FP": fp,
-            "Training FN": fn,
-            "Training samples": epoch_cm.sum(),
-
-            "Validation Loss": valid_loss / len(valid_loader),
-            "Validation Accuracy": cmf.accuracy(cm),
-            "Validation Precision": cmf.precision(cm),
-            "Validation Recall": cmf.recall(cm),
-            "Validation TP": tpv,
-            "Validation TN": tnv,
-            "Validation FP": fpv,
-            "Validation FN": fnv,
-            "Validation samples": cm.sum(),
-        })
+        wandb.log(
+            {
+                "Training Loss": epoch_loss / len(train_loader),
+                "Training Accuracy": cmf.accuracy(epoch_cm),
+                "Training Precision": cmf.precision(epoch_cm),
+                "Training Recall": cmf.recall(epoch_cm),
+                "Training TP": tp,
+                "Training TN": tn,
+                "Training FP": fp,
+                "Training FN": fn,
+                "Training samples": epoch_cm.sum(),
+                "Validation Loss": valid_loss / len(valid_loader),
+                "Validation Accuracy": cmf.accuracy(cm),
+                "Validation Precision": cmf.precision(cm),
+                "Validation Recall": cmf.recall(cm),
+                "Validation TP": tpv,
+                "Validation TN": tnv,
+                "Validation FP": fpv,
+                "Validation FN": fnv,
+                "Validation samples": cm.sum(),
+            }
+        )
 
         # also print validation loss
-        logging.info('EPOCH %d VALIDATION CM\n%s', epoch, cm / cm.sum())
+        logging.info("EPOCH %d VALIDATION CM\n%s", epoch, cm / cm.sum())
 
     # store the model state...
-    logging.info("saving model to %s", os.path.join(args.folder, 'downstream', args.target, 'model.pt'))
-    torch.save(model.state_dict(), os.path.join(args.folder, 'downstream', args.target, 'model.pt'))
+    logging.info(
+        "saving model to %s",
+        os.path.join(args.folder, "downstream", args.target, "model.pt"),
+    )
+    torch.save(
+        model.state_dict(),
+        os.path.join(args.folder, "downstream", args.target, "model.pt"),
+    )
 
 if not args.nobalance:
     # log and leap out
-    logging.info("cannot run evaluation with balanced dataset (run again with --nobalance")
+    logging.info(
+        "cannot run evaluation with balanced dataset (run again with --nobalance"
+    )
     sys.exit(0)
 
 # set the model to pure eval mode
 model.eval()
 
 # predict probability!
+
+
 def predict_proba(model, X, device=device, batch_size=1024):
     # the result
     proba_full = []
@@ -303,7 +352,7 @@ def predict_proba(model, X, device=device, batch_size=1024):
         # Iterate through test dataset
         for i in range((X.shape[0] // batch_size) + 1):
             # grab the correct portion of x
-            x = X[i*batch_size:(i+1)*batch_size, :]
+            x = X[i * batch_size : (i + 1) * batch_size, :]
 
             # forward pass
             y_hat = model(torch.FloatTensor(x).to(device))
@@ -313,6 +362,7 @@ def predict_proba(model, X, device=device, batch_size=1024):
 
     # convert to the probabilities
     return np.vstack(proba_full)
+
 
 # calculate the probabilities
 y_train_proba = predict_proba(model, X_train)
@@ -324,14 +374,18 @@ cmtr = confusion_matrix(y_train, np.argmax(y_train_proba, axis=1))
 cmva = confusion_matrix(y_valid, np.argmax(y_valid_proba, axis=1))
 cmte = confusion_matrix(y_test, np.argmax(y_test_proba, axis=1))
 
+
 def predict_threshold(proba, r=0.5):
     return np.argmax(proba, axis=1)
 
-from sklearn.metrics import precision_recall_curve
 
-for (what, proba, dft) in [('train', y_train_proba, df_train), ('valid', y_valid_proba, df_valid), ('test', y_test_proba, df_test)]:
+for (what, proba, dft) in [
+    ("train", y_train_proba, df_train),
+    ("valid", y_valid_proba, df_valid),
+    ("test", y_test_proba, df_test),
+]:
     # get the objective and check what is actually usable
-    objective = dft['target_%s' % args.target]
+    objective = dft["target_%s" % args.target]
     usable = ~np.isnan(objective)
 
     # the objective and probability is only the usable
@@ -340,7 +394,7 @@ for (what, proba, dft) in [('train', y_train_proba, df_train), ('valid', y_valid
     dftu = dft[usable]
     y_hat = np.argmax(proba, axis=1)
 
-    # confusion matrix    
+    # confusion matrix
     cm = confusion_matrix(objective, y_hat)
     cm = cm / cm.sum()
 
@@ -349,56 +403,60 @@ for (what, proba, dft) in [('train', y_train_proba, df_train), ('valid', y_valid
 
     # the results
     results = {
-        'precision': float(cmf.precision(cm)),
-        'accuracy': float(cmf.accuracy(cm)),
-        'recall': float(cmf.recall(cm)),
-        'phi': float(cmf.phi(cm)),
-        'positive': float(cmf.positive(cm))
+        "precision": float(cmf.precision(cm)),
+        "accuracy": float(cmf.accuracy(cm)),
+        "recall": float(cmf.recall(cm)),
+        "phi": float(cmf.phi(cm)),
+        "positive": float(cmf.positive(cm)),
     }
 
     # calculate precision recall curve
     p, r, t = precision_recall_curve(objective, proba[:, 1])
 
     # calculate the precision-recall curve
-    results['pr'] = {
-        'precision': list(p.astype(float)),
-        'recall': list(r.astype(float)),
-        'thresholds': list(t.astype(float))
+    results["pr"] = {
+        "precision": list(p.astype(float)),
+        "recall": list(r.astype(float)),
+        "thresholds": list(t.astype(float)),
     }
 
     # only on the 'positive' target
-    if args.target == 'positive':
+    if args.target == "positive":
         # add the profitability of taken trades in BIPS
-        results['trades'] = list(((dftu['profitability'][y_hat > 0] - 1) * 100 * 100).values.astype(float))
+        results["trades"] = list(
+            ((dftu["profitability"][y_hat > 0] - 1) * 100 * 100).values.astype(float)
+        )
 
     tickers = {}
 
     # iterate over all tickers
-    for ticker in dftu['ticker'].unique():
+    for ticker in dftu["ticker"].unique():
         # what to select?
-        select = dftu['ticker'] == ticker
+        select = dftu["ticker"] == ticker
 
-        # confusion matrix for ticker   
+        # confusion matrix for ticker
         cmt = confusion_matrix(objective[select], y_hat[select])
         cmt = cmt / cmt.sum()
 
         tickers[ticker] = {
-            'precision': float(cmf.precision(cmt)),
-            'accuracy': float(cmf.accuracy(cmt)),
-            'recall': float(cmf.recall(cmt)),
-            'phi': float(cmf.phi(cmt)),
-            'positive': float(cmf.positive(cmt))
+            "precision": float(cmf.precision(cmt)),
+            "accuracy": float(cmf.accuracy(cmt)),
+            "recall": float(cmf.recall(cmt)),
+            "phi": float(cmf.phi(cmt)),
+            "positive": float(cmf.positive(cmt)),
         }
 
     # store these tickers
-    results['tickers'] = tickers
+    results["tickers"] = tickers
 
     # dump the result json
-    with open(os.path.join(args.folder, 'downstream', args.target, what + ".json"), 'w+') as f:
+    with open(
+        os.path.join(args.folder, "downstream", args.target, what + ".json"), "w+"
+    ) as f:
         json.dump(results, f, sort_keys=True, indent=2)
 
 # todo: eval per symbol
 # todo: eval per day
 # todo: eval per GICS
 # todo: eval top 10% of repr loss
-# ... 
+# ...

@@ -29,6 +29,7 @@ class AttrDict(dict):
         super(AttrDict, self).__init__(*args, **kwargs)
         self.__dict__ = self
 
+
 def reload_settings(path):
     # open the folder settings to repeat
     with open(os.path.join(path, "settings.json"), "r+") as f:
@@ -61,6 +62,7 @@ def reload_settings(path):
 
         # return the options
         return opt
+
 
 def evaluate(opt, model, loader, fname):
     # only do target movement for now

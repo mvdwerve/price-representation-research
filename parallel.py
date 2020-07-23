@@ -1,6 +1,6 @@
-
 import time
 import subprocess
+
 
 def run(commands, num=4, refresh=30):
     # the processes

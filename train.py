@@ -1,3 +1,4 @@
+import cmf
 import torch
 import time
 import numpy as np
@@ -23,9 +24,6 @@ os.environ["WANDB_API_KEY"] = "55bfb66f97aa0be0e1b0f571ffa2c2817ce1c7ac"
 
 LOG_FORMAT = "[%(asctime)s] [%(levelname)-8s] %(filename)24s:%(lineno)-4d | %(message)s"
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-
-
-import cmf
 
 
 def train(opt, model):
@@ -150,12 +148,19 @@ def train(opt, model):
             if len(logs.val_loss) > 10:
                 min_avg_val = min(np.mean(logs.val_loss[-10:]), min_avg_val)
                 if min_avg_val - validation_loss < 1e-3:
-                    logging.info("Validation Loss did not decrease enough - %.4f vs %.4f" % (validation_loss, min_avg_val))
+                    logging.info(
+                        "Validation Loss did not decrease enough - %.4f vs %.4f"
+                        % (validation_loss, min_avg_val)
+                    )
                     early_stop += 1
                 else:
                     early_stop = 0
 
-            tn, fp, fn, tp = validation_cm.ravel() / validation_cm.sum() if validation_cm.sum() > 0 else 0
+            tn, fp, fn, tp = (
+                validation_cm.ravel() / validation_cm.sum()
+                if validation_cm.sum() > 0
+                else 0
+            )
             logs.append_val_loss(validation_loss)
             starttime = time.time()
             message.update(

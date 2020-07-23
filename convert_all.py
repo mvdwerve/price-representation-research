@@ -1,3 +1,4 @@
+import parallel
 import os
 
 commands = []
@@ -10,7 +11,6 @@ print("Going to run following commands (%d):" % (len(commands)))
 for command in commands:
     print("-", command)
 
-import parallel
 
 # run all commands in parallel
 parallel.run(commands, num=2)

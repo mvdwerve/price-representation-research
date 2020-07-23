@@ -201,9 +201,6 @@ class InfoNCE_Loss(loss.Loss):
         assert (z == z).all(), "InfoNCE: NaN in z"
 
         cm = np.zeros((2, 2))
-        true_labels = torch.zeros(
-            (seq_len * self.opt.batch_size,), device=cur_device
-        ).long()
 
         if self.opt.sampling_method == 1 or self.opt.sampling_method == 2:
             z_neg, _, _ = self.get_neg_z(z, cur_device)
