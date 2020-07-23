@@ -127,3 +127,24 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# the model files
+*-*.h5
+*-*.json
+*-*.txt
+
+# don't ever include the data
+*TICKS.csv
+
+# don't include the logs in the repository
+logs/
+
+# plots and datasets should not be shared...
+plots/
+datasets/
+*.feather
+
+# some wandb files and old log files
+wandb/
+archive-logs/
+log*/
